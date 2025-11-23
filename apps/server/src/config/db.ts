@@ -6,41 +6,61 @@ import { config } from './env';
  * Handles connection errors and retry logic
  */
 export const connectDatabase = async (): Promise<void> => {
-    try {
-        // Mongoose connection options
-        const options = {
-            // Use new URL parser
-            // These options are now default in Mongoose 6+
-        };
+    const MAX_RETRIES = 10;
+    let retries = 0;
 
-        // Connect to MongoDB
-        await mongoose.connect(config.mongodbUri, options);
+    while (retries < MAX_RETRIES) {
+        try {
+            // Mongoose connection options
+            const options = {
+                serverSelectionTimeoutMS: 5000
+            };
 
-        console.log('✅ MongoDB connected successfully');
-        console.log(`   Database: ${mongoose.connection.name}`);
+            // Connect to MongoDB
+            console.log('Current Working Directory:', process.cwd());
+            console.log('URI Length:', config.mongodbUri.length);
+            console.log('URI Value:', JSON.stringify(config.mongodbUri));
+            console.log('Attempting to connect with URI:', config.mongodbUri.replace(/:([^:@]+)@/, ':****@'));
+            await mongoose.connect(config.mongodbUri, options);
 
-        // Handle connection events
-        mongoose.connection.on('error', (error) => {
-            console.error('❌ MongoDB connection error:', error);
-        });
+            console.log('✅ MongoDB connected successfully');
+            console.log(`   Database: ${mongoose.connection.name}`);
 
-        mongoose.connection.on('disconnected', () => {
-            console.warn('⚠️  MongoDB disconnected');
-        });
+            // Handle connection events
+            mongoose.connection.on('error', (error) => {
+                console.error('❌ MongoDB connection error:', error);
+            });
 
-        // Graceful shutdown
-        process.on('SIGINT', async () => {
-            await mongoose.connection.close();
-            console.log('MongoDB connection closed through app termination');
-            process.exit(0);
-        });
+            mongoose.connection.on('disconnected', () => {
+                console.warn('⚠️  MongoDB disconnected');
+            });
 
-    } catch (error) {
-        console.error('❌ Failed to connect to MongoDB:', error);
-        console.log('Retrying in 5 seconds...');
+            // Graceful shutdown
+            process.on('SIGINT', async () => {
+                await mongoose.connection.close();
+                console.log('MongoDB connection closed through app termination');
+                process.exit(0);
+            });
 
-        // Retry connection after 5 seconds
-        setTimeout(connectDatabase, 5000);
+            return; // Connection successful, exit function
+
+        } catch (error: any) {
+            retries++;
+            console.error(`❌ Failed to connect to MongoDB (Attempt ${retries}/${MAX_RETRIES}):`);
+            console.error('Error Name:', error.name);
+            console.error('Error Message:', error.message);
+            if (error.reason) console.error('Error Reason:', error.reason);
+            if (error.code) console.error('Error Code:', error.code);
+
+            if (retries >= MAX_RETRIES) {
+                console.error('❌ Max retries reached. Exiting...');
+                process.exit(1);
+            }
+
+            console.log('Retrying in 5 seconds...');
+            // Wait for 5 seconds before retrying
+            await new Promise(resolve => setTimeout(resolve, 5000));
+        }
     }
 };
 

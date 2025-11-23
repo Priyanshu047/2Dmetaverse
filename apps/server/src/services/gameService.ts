@@ -82,7 +82,7 @@ export class GameService {
         }
 
         // Check if player is already in
-        const existingPlayer = session.players.find(p => p.userId === userId);
+        const existingPlayer = session.players.find((p: GamePlayer) => p.userId === userId);
         if (!existingPlayer) {
             const newPlayer: GamePlayer = {
                 userId,
@@ -120,7 +120,7 @@ export class GameService {
         }
 
         if (targetSession) {
-            targetSession.players = targetSession.players.filter(p => p.socketId !== socket.id);
+            targetSession.players = targetSession.players.filter((p: GamePlayer) => p.socketId !== socket.id);
             socket.leave(`game:${sessionId}`);
 
             this.io.to(`game:${sessionId}`).emit('game:update', {
@@ -153,7 +153,7 @@ export class GameService {
 
         if (!session) return;
 
-        const player = session.players.find(p => p.socketId === socket.id);
+        const player = session.players.find((p: GamePlayer) => p.socketId === socket.id);
         if (!player) return;
 
         switch (actionType) {

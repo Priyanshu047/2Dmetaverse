@@ -63,6 +63,10 @@ export class RoomScene extends Phaser.Scene {
         super({ key: 'RoomScene' });
     }
 
+    preload() {
+        this.load.image('map-background', '/src/assets/map-background.jpg');
+    }
+
     /**
      * Initialize scene with room and user data
      */
@@ -89,7 +93,17 @@ export class RoomScene extends Phaser.Scene {
      */
     create() {
         // Create simple room background (dark blue-gray)
-        this.add.rectangle(400, 300, 800, 600, 0x2c3e50);
+        // this.add.rectangle(400, 300, 800, 600, 0x2c3e50);
+
+        // Set world bounds to fixed size
+        this.physics.world.setBounds(0, 0, 800, 600);
+
+        // Add custom map background - fullscreen and static
+        const bg = this.add.image(0, 0, 'map-background');
+        bg.setOrigin(0, 0);
+        bg.setDisplaySize(this.scale.width, this.scale.height);
+        bg.setScrollFactor(0);
+        bg.setDepth(-1); // Ensure it's behind everything
 
         // Add walls for visual clarity
         this.add.rectangle(400, 10, 800, 20, 0x34495e); // Top
@@ -192,6 +206,9 @@ export class RoomScene extends Phaser.Scene {
     private initializeSocket() {
         console.log('🔌 Connecting to Socket.io server...');
         this.socket = io(SOCKET_URL);
+
+        // Remove all existing listeners to prevent duplicates
+        this.socket.removeAllListeners();
 
         // Connection established
         this.socket.on('connect', () => {
@@ -297,6 +314,12 @@ export class RoomScene extends Phaser.Scene {
      * Create avatar for another player
      */
     private createOtherPlayer(player: RoomPlayer | PlayerJoinedData) {
+        // Prevent duplicates - if player already exists, skip creation
+        if (this.otherPlayers.has(player.id)) {
+            console.log(`⚠️  Player ${player.name} (${player.id}) already exists, skipping creation`);
+            return;
+        }
+
         // Parse color
         const colorInt = parseInt(player.avatarColor.replace('#', ''), 16);
 
@@ -451,20 +474,21 @@ export class RoomScene extends Phaser.Scene {
     }
 
     /**
-     * Cleanup when scene shuts down
+     * Clean up when scene is destroyed
      */
     shutdown() {
-        console.log('🛑 RoomScene shutting down');
+        console.log('🧹 Shutting down RoomScene...');
 
-        // Disconnect socket
+        // Disconnect socket and remove all listeners
         if (this.socket) {
+            this.socket.removeAllListeners();
             this.socket.disconnect();
         }
 
-        // Clear other players
-        this.otherPlayers.forEach((playerData) => {
-            playerData.avatar.destroy();
-            playerData.label.destroy();
+        // Clear all players
+        this.otherPlayers.forEach(playerData => {
+            playerData.avatar?.destroy();
+            playerData.label?.destroy();
         });
         this.otherPlayers.clear();
     }

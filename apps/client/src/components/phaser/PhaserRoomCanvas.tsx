@@ -22,8 +22,15 @@ interface PhaserRoomCanvasProps {
  */
 const PhaserRoomCanvas: React.FC<PhaserRoomCanvasProps> = ({ roomId, user, roomLayout, onAvatarClick }) => {
     const gameRef = useRef<Phaser.Game | null>(null);
+    const initializedRef = useRef(false);
 
     useEffect(() => {
+        // Only initialize once
+        if (initializedRef.current) return;
+        initializedRef.current = true;
+
+        console.log('🎮 Initializing Phaser game...');
+
         // Create game instance
         gameRef.current = new Phaser.Game(gameConfig);
 
@@ -31,7 +38,6 @@ const PhaserRoomCanvas: React.FC<PhaserRoomCanvasProps> = ({ roomId, user, roomL
         const checkScene = setInterval(() => {
             const scene = gameRef.current?.scene.getScene('RoomScene') as RoomScene;
             if (scene && scene.scene.isActive('RoomScene')) {
-                // Scene takes care of initialization via init() method
                 clearInterval(checkScene);
             }
         }, 100);
@@ -40,6 +46,7 @@ const PhaserRoomCanvas: React.FC<PhaserRoomCanvasProps> = ({ roomId, user, roomL
         setTimeout(() => {
             const scene = gameRef.current?.scene.getScene('RoomScene') as RoomScene;
             if (scene) {
+                console.log('🚀 Starting RoomScene with data:', { roomId, userId: user.id });
                 scene.scene.restart({
                     roomId,
                     userId: user.id,
@@ -51,16 +58,18 @@ const PhaserRoomCanvas: React.FC<PhaserRoomCanvasProps> = ({ roomId, user, roomL
             }
         }, 200);
 
-        // Cleanup on unmount
+        // Cleanup on unmount ONLY
         return () => {
+            console.log('🧹 Unmounting PhaserRoomCanvas - destroying game...');
             clearInterval(checkScene);
             if (gameRef.current) {
                 // Destroy game instance
                 gameRef.current.destroy(true);
                 gameRef.current = null;
             }
+            initializedRef.current = false;
         };
-    }, [roomId, user.id, user.name, user.avatarColor, onAvatarClick]);
+    }, []); // Empty dependency array - only run once on mount
 
     return (
         <div

@@ -1,7 +1,14 @@
 import dotenv from 'dotenv';
+import path from 'path';
 
 // Load environment variables from .env file
-dotenv.config();
+const result = dotenv.config({ path: path.resolve(__dirname, '../../.env') });
+if (result.error) {
+    console.error('❌ Dotenv Error:', result.error);
+} else {
+    console.log('✅ Dotenv loaded successfully from:', path.resolve(__dirname, '../../.env'));
+    console.log('   MONGODB_URI:', process.env.MONGODB_URI ? 'Set' : 'Not Set');
+}
 
 /**
  * Environment configuration object
@@ -13,7 +20,7 @@ export const config = {
     nodeEnv: process.env.NODE_ENV || 'development',
 
     // Database configuration
-    mongodbUri: process.env.MONGODB_URI || 'mongodb://localhost:27017/metaverse',
+    mongodbUri: process.env.MONGODB_URI || '',
 
     // JWT configuration
     jwtSecret: process.env.JWT_SECRET || 'default-secret-change-in-production',

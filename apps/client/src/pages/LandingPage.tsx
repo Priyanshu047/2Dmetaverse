@@ -1,5 +1,6 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import LoginModal from '../components/auth/LoginModal';
 
 /**
  * LandingPage Component
@@ -7,9 +8,10 @@ import { useNavigate } from 'react-router-dom';
  */
 const LandingPage: React.FC = () => {
     const navigate = useNavigate();
+    const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
 
     const handleEnterMetaverse = () => {
-        navigate('/lobby');
+        setIsLoginModalOpen(true);
     };
 
     const scrollToSection = (sectionId: string) => {
@@ -19,6 +21,11 @@ const LandingPage: React.FC = () => {
 
     return (
         <div className="min-h-screen bg-gradient-to-b from-slate-950 via-slate-900 to-slate-950 text-slate-100">
+            <LoginModal
+                isOpen={isLoginModalOpen}
+                onClose={() => setIsLoginModalOpen(false)}
+            />
+
             {/* Navbar */}
             <nav className="fixed top-0 left-0 right-0 z-50 bg-slate-950/80 backdrop-blur-lg border-b border-slate-800">
                 <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -128,8 +135,8 @@ const LandingPage: React.FC = () => {
                                             <div
                                                 key={i}
                                                 className={`h-12 rounded ${i % 3 === 0
-                                                        ? 'bg-cyan-500/20 border border-cyan-500/50'
-                                                        : 'bg-slate-700/30'
+                                                    ? 'bg-cyan-500/20 border border-cyan-500/50'
+                                                    : 'bg-slate-700/30'
                                                     }`}
                                             ></div>
                                         ))}
@@ -145,10 +152,10 @@ const LandingPage: React.FC = () => {
                                         >
                                             <div
                                                 className={`w-8 h-8 rounded-full ${i === 1
-                                                        ? 'bg-cyan-400'
-                                                        : i === 2
-                                                            ? 'bg-purple-400'
-                                                            : 'bg-pink-400'
+                                                    ? 'bg-cyan-400'
+                                                    : i === 2
+                                                        ? 'bg-purple-400'
+                                                        : 'bg-pink-400'
                                                     }`}
                                             ></div>
                                             <div className="absolute bottom-1 right-1 w-4 h-4 bg-green-500 rounded-full border-2 border-slate-900"></div>
