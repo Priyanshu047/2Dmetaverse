@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import LoginModal from '../components/auth/LoginModal';
+import { useAuth } from '../contexts/AuthContext';
 
 /**
  * LandingPage Component
@@ -8,6 +9,7 @@ import LoginModal from '../components/auth/LoginModal';
  */
 const LandingPage: React.FC = () => {
     const navigate = useNavigate();
+    const { user } = useAuth();
     const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
 
     const handleEnterMetaverse = () => {
@@ -33,7 +35,7 @@ const LandingPage: React.FC = () => {
                         {/* Logo */}
                         <div className="flex-shrink-0">
                             <h1 className="text-2xl font-bold bg-gradient-to-r from-cyan-400 to-blue-500 bg-clip-text text-transparent">
-                                OrbitHub
+                                2D-Metaverse
                             </h1>
                         </div>
 

@@ -2,6 +2,7 @@ import { Server as HTTPServer } from 'http';
 import { Server, Socket } from 'socket.io';
 import { config } from '../config/env';
 import { AvatarPosition, ChatMessage } from '../types';
+import { Room } from '../models/Room';
 import { setupWebRTCHandlers } from './webrtc';
 import { GameService } from '../services/gameService';
 import { setupGameHandlers } from './gameHandlers';
@@ -60,7 +61,7 @@ export const initializeSocketServer = (httpServer: HTTPServer): Server => {
         /**
          * Handle room join event
          */
-        socket.on('room:join', (data: { roomId: string; userId?: string; name?: string; avatarColor?: string }) => {
+        socket.on('room:join', async (data: { roomId: string; userId?: string; name?: string; avatarColor?: string }) => {
             const { roomId, userId, name, avatarColor } = data;
 
             // Leave previous room if any
@@ -69,12 +70,58 @@ export const initializeSocketServer = (httpServer: HTTPServer): Server => {
             }
 
             // Join the new room
+
+            // CRITICAL FIX: Check if this user is already in the room (ghost user) and remove them
+            if (userId) {
+                const socketsInRoom = io.sockets.adapter.rooms.get(roomId);
+                if (socketsInRoom) {
+                    socketsInRoom.forEach((socketId) => {
+                        const otherSocket = io.sockets.sockets.get(socketId);
+                        if (otherSocket && socketId !== socket.id) {
+                            const otherData = otherSocket.data as SocketData;
+                            if (otherData.userId === userId) {
+                                console.log(`⚠️ Found ghost user ${userId} (socket ${socketId}), forcing disconnect...`);
+                                // Notify others that the old ghost user left
+                                socket.to(roomId).emit('player:left', {
+                                    playerId: userId
+                                });
+                                // Force the old socket to leave the room
+                                otherSocket.leave(roomId);
+                                otherData.currentRoom = undefined;
+                                // Optionally disconnect the old socket
+                                otherSocket.disconnect(true);
+                            }
+                        }
+                    });
+                }
+            }
+
             socket.join(roomId);
             (socket.data as SocketData).currentRoom = roomId;
             (socket.data as SocketData).userId = userId;
             (socket.data as SocketData).username = name;
 
-            console.log(`👤 User ${name || socket.id} joined room: ${roomId}`);
+            // Check for admin role (Room Owner)
+            let role = 'user';
+            try {
+                // Find room by slug OR roomId (6-digit)
+                let room = await Room.findOne({ slug: roomId });
+                if (!room) {
+                    room = await Room.findOne({ roomId: roomId });
+                }
+
+                if (room && userId && room.ownerId === userId) {
+                    role = 'admin';
+                    console.log(`👑 Admin ${name} joined room ${roomId}`);
+                }
+            } catch (err) {
+                console.error('Error checking room owner:', err);
+            }
+
+            // Set role in socket data
+            (socket.data as any).role = role;
+
+            console.log(`👤 User ${name || socket.id} joined room: ${roomId} as ${role}`);
 
             // Get all sockets in the room to send room state
             const socketsInRoom = io.sockets.adapter.rooms.get(roomId);
@@ -117,7 +164,11 @@ export const initializeSocketServer = (httpServer: HTTPServer): Server => {
             socket.emit('room:joined', {
                 roomId,
                 message: `Successfully joined room: ${roomId}`,
+                role // Send role back to client
             });
+
+            // Explicitly emit role event
+            socket.emit('room:role', { role });
         });
 
         /**
@@ -134,6 +185,7 @@ export const initializeSocketServer = (httpServer: HTTPServer): Server => {
             // Notify others in the room
             socket.to(roomId).emit('player:left', {
                 playerId: socketData.userId || socket.id,
+                socketId: socket.id, // Add socketId for WebRTC cleanup
             });
 
             socketData.currentRoom = undefined;
@@ -197,6 +249,7 @@ export const initializeSocketServer = (httpServer: HTTPServer): Server => {
             if (socketData.currentRoom) {
                 socket.to(socketData.currentRoom).emit('player:left', {
                     playerId: socketData.userId || socket.id,
+                    socketId: socket.id, // Add socketId for WebRTC cleanup
                 });
             }
         });

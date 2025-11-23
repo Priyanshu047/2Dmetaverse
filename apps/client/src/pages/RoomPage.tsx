@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { useSocket } from '../hooks/useSocket';
@@ -92,6 +92,10 @@ const RoomPage = () => {
         isInitialized,
     } = useWebRTC(socket, roomId, user?.id);
 
+    // Screen sharing state
+    const [isScreenSharing, setIsScreenSharing] = useState(false);
+    const screenStreamRef = useRef<MediaStream | null>(null);
+
     // Spatial audio controls
     const {
         isEnabled: spatialAudioEnabled,
@@ -100,6 +104,12 @@ const RoomPage = () => {
         setMasterVolume,
         isSupported: spatialAudioSupported,
     } = useSpatialAudio();
+
+    // Set spatial audio to always enabled at 60% volume
+    useEffect(() => {
+        setSpatialAudioEnabled(true);
+        setMasterVolume(60);
+    }, [setSpatialAudioEnabled, setMasterVolume]);
 
     useEffect(() => {
         if (!user) {
@@ -282,6 +292,45 @@ const RoomPage = () => {
         navigate('/rooms');
     };
 
+    // Screen sharing functions
+    const startScreenShare = async () => {
+        try {
+            const screenStream = await navigator.mediaDevices.getDisplayMedia({
+                video: true,
+                audio: false
+            });
+
+            screenStreamRef.current = screenStream;
+            setIsScreenSharing(true);
+
+            // Handle when user stops sharing via browser UI
+            screenStream.getVideoTracks()[0].onended = () => {
+                stopScreenShare();
+            };
+
+            console.log('🖥️ Screen sharing started');
+        } catch (error) {
+            console.error('Failed to start screen sharing:', error);
+        }
+    };
+
+    const stopScreenShare = () => {
+        if (screenStreamRef.current) {
+            screenStreamRef.current.getTracks().forEach((track: MediaStreamTrack) => track.stop());
+            screenStreamRef.current = null;
+        }
+        setIsScreenSharing(false);
+        console.log('🛑 Screen sharing stopped');
+    };
+
+    const toggleScreenShare = () => {
+        if (isScreenSharing) {
+            stopScreenShare();
+        } else {
+            startScreenShare();
+        }
+    };
+
     if (!user) return null;
 
     if (loading) {
@@ -348,6 +397,7 @@ const RoomPage = () => {
                         }}
                         roomLayout={room.layout}
                         onAvatarClick={handleAvatarClick}
+                        socket={socket}
                     />
                 </div>
 
@@ -384,51 +434,17 @@ const RoomPage = () => {
                             >
                                 {isVideoOff ? '📹 Start Video' : '🎥 Stop Video'}
                             </button>
+
+                            <button
+                                onClick={toggleScreenShare}
+                                className={`px-4 py-3 rounded-lg font-semibold transition ${isScreenSharing
+                                    ? 'bg-green-600 hover:bg-green-700 text-white'
+                                    : 'bg-gray-600 hover:bg-gray-700 text-white'
+                                    }`}
+                            >
+                                {isScreenSharing ? '🖥️ Stop Share' : '📺 Share Screen'}
+                            </button>
                         </div>
-                    </div>
-
-                    {/* Spatial Audio Controls */}
-                    <div className="p-4 border-b border-gray-700 bg-gray-900">
-                        <h3 className="text-white font-semibold text-sm mb-3 flex items-center gap-2">
-                            <span>🎧</span>
-                            <span>Spatial Audio</span>
-                        </h3>
-
-                        {spatialAudioSupported ? (
-                            <>
-                                <div className="flex items-center justify-between mb-3">
-                                    <span className="text-gray-300 text-sm">Enable 3D Audio</span>
-                                    <button
-                                        onClick={() => setSpatialAudioEnabled(!spatialAudioEnabled)}
-                                        className={`px-3 py-1 rounded-lg font-semibold text-sm transition ${spatialAudioEnabled
-                                            ? 'bg-green-600 hover:bg-green-700 text-white'
-                                            : 'bg-gray-600 hover:bg-gray-700 text-white'
-                                            }`}
-                                    >
-                                        {spatialAudioEnabled ? 'ON' : 'OFF'}
-                                    </button>
-                                </div>
-
-                                <div>
-                                    <label className="text-gray-300 text-sm block mb-2 flex items-center justify-between">
-                                        <span>Volume</span>
-                                        <span className="text-white font-semibold">{masterVolume}%</span>
-                                    </label>
-                                    <input
-                                        type="range"
-                                        min="0"
-                                        max="100"
-                                        value={masterVolume}
-                                        onChange={(e) => setMasterVolume(Number(e.target.value))}
-                                        className="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-blue-600"
-                                    />
-                                </div>
-                            </>
-                        ) : (
-                            <p className="text-gray-400 text-sm">
-                                ⚠️ Not supported in this browser
-                            </p>
-                        )}
                     </div>
                 </div>
             </div>

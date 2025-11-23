@@ -12,6 +12,17 @@ import type {
 import { RoomLayout, GameZoneConfig } from '@metaverse/shared';
 import { QuizScene } from './QuizScene';
 
+// Import avatar images
+import user1 from '../../../../assets/avatars/user1.png';
+import user2 from '../../../../assets/avatars/user2.png';
+import user3 from '../../../../assets/avatars/user3.png';
+import user4 from '../../../../assets/avatars/user4.png';
+import user5 from '../../../../assets/avatars/user5.png';
+import user6 from '../../../../assets/avatars/user6.png';
+import user7 from '../../../../assets/avatars/user7.png';
+
+const AVATAR_IMAGES = [user1, user2, user3, user4, user5, user6, user7];
+
 const SOCKET_URL = 'http://localhost:3001';
 
 interface WASDKeys {
@@ -37,14 +48,16 @@ export class RoomScene extends Phaser.Scene {
     private socket!: Socket;
 
     // Player objects
-    private player!: Phaser.GameObjects.Rectangle;
+    // Using Sprite with physics body and random avatar
+    private player!: Phaser.GameObjects.Sprite;
     private playerLabel!: Phaser.GameObjects.Text;
     private playerSpeed = 200;
+    private playerAvatarKey!: string;
 
     // Other players
     private otherPlayers: Map<
         string,
-        { avatar: Phaser.GameObjects.Rectangle; label: Phaser.GameObjects.Text }
+        { avatar: Phaser.GameObjects.Sprite; label: Phaser.GameObjects.Text }
     > = new Map();
 
     // Input
@@ -59,12 +72,38 @@ export class RoomScene extends Phaser.Scene {
     private spatialAudioUpdateTime = 0;
     private spatialAudioUpdateInterval = 100; // Update spatial audio every 100ms
 
+    private isSceneReady = false;
+
     constructor() {
         super({ key: 'RoomScene' });
     }
 
     preload() {
-        this.load.image('map-background', '/src/assets/map-background.jpg');
+        // Load map background from public assets
+        this.load.image('map-background', '/assets/map-background.jpg');
+
+        // Load user avatar images (7 images total)
+        AVATAR_IMAGES.forEach((img, index) => {
+            this.load.image(`user${index + 1}`, img);
+        });
+
+        this.load.on('loaderror', (file: any) => {
+            console.error('❌ Error loading asset:', file.key, file.src);
+        });
+    }
+
+    /**
+     * Set the socket instance dynamically
+     */
+    public setSocket(socket: Socket) {
+        if (this.socket === socket) return;
+        this.socket = socket;
+        console.log('🔌 Socket updated in RoomScene:', socket.id);
+
+        // Only initialize listeners if scene is ready
+        if (this.isSceneReady) {
+            this.initializeSocket();
+        }
     }
 
     /**
@@ -77,6 +116,7 @@ export class RoomScene extends Phaser.Scene {
         avatarColor: string;
         onAvatarClick?: (userId: string) => void;
         roomLayout?: RoomLayout;
+        socket?: Socket;
     }) {
         this.roomId = data.roomId;
         this.userId = data.userId;
@@ -84,26 +124,40 @@ export class RoomScene extends Phaser.Scene {
         this.avatarColor = data.avatarColor;
         this.onAvatarClick = data.onAvatarClick;
         this.roomLayout = data.roomLayout;
+        this.isSceneReady = false; // Reset ready state
 
-        console.log('🎮 RoomScene initialized:', { roomId: this.roomId, userId: this.userId, hasLayout: !!this.roomLayout });
+        if (data.socket) {
+            this.setSocket(data.socket);
+        }
+
+        console.log('🎮 RoomScene initialized:', { roomId: this.roomId, userId: this.userId, hasLayout: !!this.roomLayout, hasSocket: !!this.socket });
     }
 
     /**
      * Create the game world and setup networking
      */
     create() {
-        // Create simple room background (dark blue-gray)
-        // this.add.rectangle(400, 300, 800, 600, 0x2c3e50);
-
         // Set world bounds to fixed size
         this.physics.world.setBounds(0, 0, 800, 600);
 
         // Add custom map background - fullscreen and static
-        const bg = this.add.image(0, 0, 'map-background');
-        bg.setOrigin(0, 0);
-        bg.setDisplaySize(this.scale.width, this.scale.height);
-        bg.setScrollFactor(0);
-        bg.setDepth(-1); // Ensure it's behind everything
+        if (this.textures.exists('map-background')) {
+            const bg = this.add.image(0, 0, 'map-background');
+            bg.setOrigin(0, 0);
+            bg.setDisplaySize(this.scale.width, this.scale.height);
+            bg.setScrollFactor(0);
+            bg.setDepth(-1); // Ensure it's behind everything
+        } else {
+            console.error('❌ map-background texture missing!');
+            // Fallback background
+            this.add.rectangle(0, 0, 800, 600, 0x2c3e50).setOrigin(0, 0).setDepth(-1);
+        }
+
+        // Render layout if available
+        if (this.roomLayout) {
+            this.renderLayout(this.roomLayout);
+            this.setupGameZones();
+        }
 
         // Add walls for visual clarity
         this.add.rectangle(400, 10, 800, 20, 0x34495e); // Top
@@ -111,32 +165,11 @@ export class RoomScene extends Phaser.Scene {
         this.add.rectangle(10, 300, 20, 600, 0x34495e); // Left
         this.add.rectangle(790, 300, 20, 600, 0x34495e); // Right
 
-        // Create local player avatar with color
-        const colorInt = parseInt(this.avatarColor.replace('#', ''), 16);
-        this.player = this.add.rectangle(400, 300, 30, 30, colorInt);
-        this.player.setStrokeStyle(3, 0xffffff); // White outline for local player
+        // Create player avatar
+        this.createPlayer();
 
-        // Add player name label
-        this.playerLabel = this.add.text(this.player.x, this.player.y - 25, this.username, {
-            fontSize: '12px',
-            color: '#ffffff',
-            backgroundColor: '#000000aa',
-            padding: { x: 4, y: 2 },
-        });
-        this.playerLabel.setOrigin(0.5);
-
-        // Setup keyboard controls (both Arrow keys and WASD)
-        this.cursors = this.input.keyboard!.createCursorKeys();
-        this.wasd = {
-            up: this.input.keyboard!.addKey(Phaser.Input.Keyboard.KeyCodes.W),
-            down: this.input.keyboard!.addKey(Phaser.Input.Keyboard.KeyCodes.S),
-            left: this.input.keyboard!.addKey(Phaser.Input.Keyboard.KeyCodes.A),
-            right: this.input.keyboard!.addKey(Phaser.Input.Keyboard.KeyCodes.D),
-        };
-        this.eKey = this.input.keyboard!.addKey(Phaser.Input.Keyboard.KeyCodes.E);
-
-        // Setup Game Zones
-        this.setupGameZones();
+        // Setup Input
+        this.setupInput();
 
         // Setup Interaction UI
         this.interactionText = this.add.text(400, 500, '', {
@@ -160,8 +193,22 @@ export class RoomScene extends Phaser.Scene {
         );
         instructionText.setOrigin(0.5);
 
-        // Initialize Socket.io connection
-        this.initializeSocket();
+        // Mark scene as ready
+        this.isSceneReady = true;
+
+        // Initialize Socket.io connection now that scene is ready
+        if (this.socket) {
+            this.initializeSocket();
+        }
+
+        // Setup spatial audio
+        this.setupSpatialAudio();
+
+        // Click to focus game
+        this.input.on('pointerdown', () => {
+            console.log('🖱️ Game focused');
+            this.game.canvas.focus();
+        });
 
         // Listen for game joined event
         this.events.on('resume', () => {
@@ -169,6 +216,96 @@ export class RoomScene extends Phaser.Scene {
             this.activeGameZone = undefined;
             this.interactionText?.setVisible(false);
         });
+    }
+
+    private createPlayer() {
+        console.log('👤 Creating player for:', this.userId);
+
+        // Select random avatar image (1-7)
+        const randomAvatar = Math.floor(Math.random() * 7) + 1;
+        this.playerAvatarKey = `user${randomAvatar}`;
+
+        console.log(`🎨 Selected avatar: ${this.playerAvatarKey}`);
+
+        // Create sprite avatar
+        this.player = this.add.sprite(400, 300, this.playerAvatarKey);
+        this.player.setScale(0.5); // Scale down if needed
+        this.player.setDisplaySize(50, 50); // Set consistent display size
+
+        // Enable physics
+        this.physics.add.existing(this.player);
+        const body = this.player.body as Phaser.Physics.Arcade.Body;
+        body.setCollideWorldBounds(true);
+        // Set physics body size to match visual size
+        body.setSize(50, 50);
+
+        // Add name label
+        this.playerLabel = this.add.text(this.player.x, this.player.y - 35, this.username, {
+            fontSize: '12px',
+            color: '#ffffff',
+            backgroundColor: '#000000aa',
+            padding: { x: 4, y: 2 },
+        });
+        this.playerLabel.setOrigin(0.5);
+    }
+
+    private setupInput() {
+        this.cursors = this.input.keyboard!.createCursorKeys();
+        this.wasd = {
+            up: this.input.keyboard!.addKey(Phaser.Input.Keyboard.KeyCodes.W),
+            down: this.input.keyboard!.addKey(Phaser.Input.Keyboard.KeyCodes.S),
+            left: this.input.keyboard!.addKey(Phaser.Input.Keyboard.KeyCodes.A),
+            right: this.input.keyboard!.addKey(Phaser.Input.Keyboard.KeyCodes.D),
+        };
+        this.eKey = this.input.keyboard!.addKey(Phaser.Input.Keyboard.KeyCodes.E);
+
+        // Debug input
+        this.input.keyboard!.on('keydown', (event: KeyboardEvent) => {
+            console.log('⌨️ Key down:', event.code);
+        });
+    }
+
+    private setupSpatialAudio() {
+        // Initialize spatial audio manager
+        SpatialAudioManager.getInstance();
+    }
+
+    private renderLayout(layout: RoomLayout) {
+        // Check if layoutJson exists and has walls/furniture
+        if (!layout.layoutJson) return;
+
+        const layoutData = layout.layoutJson;
+
+        // Render walls if they exist
+        if (layoutData.walls && Array.isArray(layoutData.walls)) {
+            layoutData.walls.forEach((wall: any) => {
+                const rect = this.add.rectangle(
+                    wall.x + wall.width / 2,
+                    wall.y + wall.height / 2,
+                    wall.width,
+                    wall.height,
+                    0x7f8c8d
+                );
+                this.physics.add.existing(rect, true); // Static body
+                this.physics.add.collider(this.player, rect);
+            });
+        }
+
+        // Render furniture if it exists
+        if (layoutData.furniture && Array.isArray(layoutData.furniture)) {
+            layoutData.furniture.forEach((item: any) => {
+                // Simple representation for now
+                const rect = this.add.rectangle(
+                    item.x + item.width / 2,
+                    item.y + item.height / 2,
+                    item.width,
+                    item.height,
+                    0x95a5a6
+                );
+                this.physics.add.existing(rect, true);
+                this.physics.add.collider(this.player, rect);
+            });
+        }
     }
 
     private setupGameZones() {
@@ -204,24 +341,31 @@ export class RoomScene extends Phaser.Scene {
      * Setup Socket.io client and event handlers
      */
     private initializeSocket() {
-        console.log('🔌 Connecting to Socket.io server...');
-        this.socket = io(SOCKET_URL);
+        if (!this.socket) {
+            console.error('❌ Socket not initialized in RoomScene!');
+            return;
+        }
 
-        // Remove all existing listeners to prevent duplicates
-        this.socket.removeAllListeners();
+        console.log('🔌 Using shared Socket.io connection:', this.socket.id);
 
-        // Connection established
-        this.socket.on('connect', () => {
-            console.log('✅ Socket connected:', this.socket.id);
+        // DO NOT remove all listeners as we share the socket with React components!
+        // Only remove listeners specific to this scene to prevent duplicates on restart
+        this.socket.off('room:state');
+        this.socket.off('player:joined');
+        this.socket.off('player:moved');
+        this.socket.off('player:left');
+        this.socket.off('game:joined');
 
-            // Join the room
-            this.socket.emit('room:join', {
-                roomId: this.roomId,
-                userId: this.userId,
-                name: this.username,
-                avatarColor: this.avatarColor,
+        // Connection established (if not already connected)
+        if (!this.socket.connected) {
+            this.socket.on('connect', () => {
+                console.log('✅ Socket connected (in scene):', this.socket.id);
+                this.joinRoom();
             });
-        });
+        } else {
+            // Already connected, just join
+            this.joinRoom();
+        }
 
         // Receive initial room state (existing players)
         this.socket.on('room:state', this.handleRoomState.bind(this));
@@ -257,16 +401,29 @@ export class RoomScene extends Phaser.Scene {
         });
     }
 
+    private joinRoom() {
+        this.socket.emit('room:join', {
+            roomId: this.roomId,
+            userId: this.userId,
+            name: this.username,
+            avatarColor: this.avatarColor,
+        });
+    }
+
     /**
      * Handle initial room state with existing players
      */
     private handleRoomState(data: RoomStateData) {
         console.log('📦 Received room state:', data);
+        console.log('👤 My User ID:', this.userId);
 
         data.players.forEach((player: RoomPlayer) => {
-            // Don't create avatar for ourselves
-            if (player.id !== this.userId) {
+            console.log(`🔍 Checking player: ${player.id} (${player.name}) vs Me: ${this.userId}`);
+            // Don't create avatar for ourselves (ensure string comparison)
+            if (String(player.id) !== String(this.userId)) {
                 this.createOtherPlayer(player);
+            } else {
+                console.log('🚫 Skipping creation for self');
             }
         });
     }
@@ -292,7 +449,7 @@ export class RoomScene extends Phaser.Scene {
         if (playerData) {
             // Update position smoothly
             playerData.avatar.setPosition(data.x, data.y);
-            playerData.label.setPosition(data.x, data.y - 25);
+            playerData.label.setPosition(data.x, data.y - 35);
         }
     }
 
@@ -320,11 +477,21 @@ export class RoomScene extends Phaser.Scene {
             return;
         }
 
-        // Parse color
-        const colorInt = parseInt(player.avatarColor.replace('#', ''), 16);
+        // Select random avatar image (1-7)
+        const randomAvatar = Math.floor(Math.random() * 7) + 1;
+        const avatarKey = `user${randomAvatar}`;
 
-        // Create avatar
-        const avatar = this.add.rectangle(player.x, player.y, 30, 30, colorInt);
+        console.log(`🎨 Selected avatar for ${player.name}: ${avatarKey}`);
+
+        // Create sprite avatar
+        const avatar = this.add.sprite(player.x, player.y, avatarKey);
+        avatar.setDisplaySize(50, 50); // Set consistent display size
+
+        // Enable physics
+        this.physics.add.existing(avatar);
+        const body = avatar.body as Phaser.Physics.Arcade.Body;
+        body.setImmovable(true); // Other players are immovable
+        body.setSize(50, 50);
 
         // Make avatar interactive for clicking
         avatar.setInteractive({ useHandCursor: true });
@@ -337,17 +504,20 @@ export class RoomScene extends Phaser.Scene {
             }
         });
 
-        // Add hover effect
+        // Add hover effect with tint
         avatar.on('pointerover', () => {
-            avatar.setStrokeStyle(3, 0xffff00); // Yellow outline on hover
+            avatar.setTint(0xffff00); // Yellow tint on hover
         });
 
         avatar.on('pointerout', () => {
-            avatar.setStrokeStyle(0); // Remove outline
+            avatar.clearTint(); // Remove tint
         });
 
+        // Add collision with local player
+        this.physics.add.collider(this.player, avatar);
+
         // Create name label
-        const label = this.add.text(player.x, player.y - 25, player.name, {
+        const label = this.add.text(player.x, player.y - 35, player.name, {
             fontSize: '12px',
             color: '#ffffff',
             backgroundColor: '#000000aa',
@@ -368,7 +538,7 @@ export class RoomScene extends Phaser.Scene {
         if (!this.player || !this.cursors || !this.wasd) return;
 
         let moved = false;
-        const deltaSeconds = delta / 1000;
+        const body = this.player.body as Phaser.Physics.Arcade.Body;
 
         // Check both arrow keys and WASD
         const left = this.cursors.left.isDown || this.wasd.left.isDown;
@@ -378,27 +548,27 @@ export class RoomScene extends Phaser.Scene {
 
         // Update player position
         if (left) {
-            this.player.x -= this.playerSpeed * deltaSeconds;
+            body.setVelocityX(-this.playerSpeed);
             moved = true;
         } else if (right) {
-            this.player.x += this.playerSpeed * deltaSeconds;
+            body.setVelocityX(this.playerSpeed);
             moved = true;
+        } else {
+            body.setVelocityX(0);
         }
 
         if (up) {
-            this.player.y -= this.playerSpeed * deltaSeconds;
+            body.setVelocityY(-this.playerSpeed);
             moved = true;
         } else if (down) {
-            this.player.y += this.playerSpeed * deltaSeconds;
+            body.setVelocityY(this.playerSpeed);
             moved = true;
+        } else {
+            body.setVelocityY(0);
         }
 
-        // Constrain to room bounds
-        this.player.x = Phaser.Math.Clamp(this.player.x, 30, 770);
-        this.player.y = Phaser.Math.Clamp(this.player.y, 30, 570);
-
         // Update label position
-        this.playerLabel.setPosition(this.player.x, this.player.y - 25);
+        this.playerLabel.setPosition(this.player.x, this.player.y - 35);
 
         // Emit position to server (throttled)
         if (moved && time - this.lastEmitTime > this.emitInterval) {
@@ -418,12 +588,6 @@ export class RoomScene extends Phaser.Scene {
         }
 
         // Reset active zone if not overlapping (simple check)
-        // Note: The physics overlap callback runs every frame, so we can reset it at start of update
-        // But simpler is to just hide text if we moved far away? 
-        // Actually, physics overlap is better. Let's reset activeGameZone at start of update?
-        // No, overlap happens during physics step.
-        // Let's just check distance or rely on overlap.
-        // A robust way: set activeGameZone = undefined at start of update, then overlap sets it.
         this.activeGameZone = undefined;
         this.interactionText?.setVisible(false);
     }
@@ -481,8 +645,15 @@ export class RoomScene extends Phaser.Scene {
 
         // Disconnect socket and remove all listeners
         if (this.socket) {
-            this.socket.removeAllListeners();
-            this.socket.disconnect();
+            // Only remove listeners we added
+            this.socket.off('room:state');
+            this.socket.off('player:joined');
+            this.socket.off('player:moved');
+            this.socket.off('player:left');
+            this.socket.off('game:joined');
+
+            // DO NOT disconnect socket as it is shared!
+            // this.socket.disconnect();
         }
 
         // Clear all players

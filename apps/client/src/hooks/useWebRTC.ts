@@ -40,19 +40,46 @@ export const useWebRTC = (
     // Initialize media devices
     const initializeMedia = useCallback(async () => {
         try {
+            // IMPORTANT: Always request both audio and video for WebRTC to work
+            // Even if user toggles camera/mic off, we need the tracks for peer connections
             const stream = await navigator.mediaDevices.getUserMedia({
                 video: true,
-                audio: true,
+                audio: {
+                    echoCancellation: true,
+                    noiseSuppression: true,
+                    autoGainControl: true,
+                },
             });
 
             localStreamRef.current = stream;
             setLocalStream(stream);
             setIsInitialized(true);
 
-            console.log('📹 Local media initialized:', stream.getTracks().map(t => t.kind));
+            console.log('📹 Local media initialized:', stream.getTracks().map(t => `${t.kind}: ${t.label}`));
+            console.log('🎤 Audio tracks:', stream.getAudioTracks().map(t => `enabled: ${t.enabled}`));
+            console.log('📹 Video tracks:', stream.getVideoTracks().map(t => `enabled: ${t.enabled}`));
         } catch (error) {
             console.error('❌ Failed to get user media:', error);
-            setIsInitialized(false);
+
+            // Try audio-only fallback if video fails
+            try {
+                console.log('🔄 Trying audio-only fallback...');
+                const audioOnlyStream = await navigator.mediaDevices.getUserMedia({
+                    audio: true,
+                    video: false,
+                });
+                localStreamRef.current = audioOnlyStream;
+                setLocalStream(audioOnlyStream);
+                setIsInitialized(true);
+                setIsVideoOff(true); // Mark video as unavailable
+                console.log('✅ Audio-only mode initialized');
+            } catch (audioError) {
+                console.error('❌ Failed to get any media:', audioError);
+                // Allow WebRTC to proceed without local media (Receive Only)
+                setIsInitialized(true);
+                setIsVideoOff(true);
+                setIsMuted(true);
+            }
         }
     }, []);
 
@@ -140,13 +167,17 @@ export const useWebRTC = (
                 return;
             }
 
-            const peer = createPeer(peerId, initiator);
-            const peerData: Peer = { peer, stream: null };
+            try {
+                const peer = createPeer(peerId, initiator);
+                const peerData: Peer = { peer, stream: null };
 
-            peersRef.current.set(peerId, peerData);
-            setPeers(new Map(peersRef.current));
+                peersRef.current.set(peerId, peerData);
+                setPeers(new Map(peersRef.current));
 
-            console.log(`➕ Added peer ${peerId}, total peers: ${peersRef.current.size}`);
+                console.log(`➕ Added peer ${peerId}, total peers: ${peersRef.current.size}`);
+            } catch (err) {
+                console.error(`❌ Failed to create peer ${peerId}:`, err);
+            }
         },
         [createPeer]
     );
@@ -163,6 +194,8 @@ export const useWebRTC = (
             peersRef.current.delete(peerId);
             setPeers(new Map(peersRef.current));
             console.log(`➖ Removed peer ${peerId}, remaining: ${peersRef.current.size}`);
+        } else {
+            console.warn(`⚠️ Attempted to remove non-existent peer ${peerId}`);
         }
     }, []);
 
@@ -206,15 +239,35 @@ export const useWebRTC = (
         };
     }, [userId, roomId, initializeMedia]);
 
+    // Add local stream to peers when it becomes available (fixes race condition)
+    useEffect(() => {
+        if (localStream && peersRef.current.size > 0) {
+            console.log('🎥 Local stream ready, adding to existing peers');
+            peersRef.current.forEach((peerData, peerId) => {
+                try {
+                    console.log(`🎥 Adding stream to peer ${peerId}`);
+                    peerData.peer.addStream(localStream);
+                } catch (err) {
+                    console.warn(`⚠️ Could not add stream to peer ${peerId} (might already have it):`, err);
+                }
+            });
+        }
+    }, [localStream]);
+
     // Socket event listeners
     useEffect(() => {
         if (!socket || !isInitialized) return;
 
+        console.log('🔌 Setting up WebRTC socket listeners for socket:', socket.id);
+
         // Handle new peer joined
         const handlePeerJoined = ({ peerId }: { peerId: string }) => {
-            console.log(`👤 Peer joined: ${peerId}`);
+            console.log(`👤 Peer joined event received: ${peerId}`);
             if (peerId !== userId) {
+                console.log(`🚀 Initiating connection to ${peerId}`);
                 addPeer(peerId, true); // We are the initiator
+            } else {
+                console.log('⚠️ Peer joined is self, ignoring');
             }
         };
 
@@ -223,12 +276,16 @@ export const useWebRTC = (
             console.log(`📥 Received offer from ${sourceId}`);
 
             if (!peersRef.current.has(sourceId)) {
+                console.log(`➕ Accepting offer from new peer ${sourceId}`);
                 addPeer(sourceId, false); // We are the receiver
             }
 
             const peerData = peersRef.current.get(sourceId);
             if (peerData) {
+                console.log(`📡 Signaling offer to peer ${sourceId}`);
                 peerData.peer.signal(offer);
+            } else {
+                console.warn(`❌ Could not find peer ${sourceId} to signal offer`);
             }
         };
 
@@ -238,7 +295,10 @@ export const useWebRTC = (
 
             const peerData = peersRef.current.get(sourceId);
             if (peerData) {
+                console.log(`📡 Signaling answer to peer ${sourceId}`);
                 peerData.peer.signal(answer);
+            } else {
+                console.warn(`❌ Could not find peer ${sourceId} to signal answer`);
             }
         };
 
@@ -249,27 +309,30 @@ export const useWebRTC = (
             const peerData = peersRef.current.get(sourceId);
             if (peerData) {
                 peerData.peer.signal(candidate);
+            } else {
+                console.warn(`❌ Could not find peer ${sourceId} to signal candidate`);
             }
         };
 
         // Handle peer left
-        const handleUserLeft = ({ userId: leftUserId }: { userId: string }) => {
-            console.log(`👋 User left: ${leftUserId}`);
-            removePeer(leftUserId);
+        const handleUserLeft = ({ playerId, socketId }: { playerId: string; socketId?: string }) => {
+            console.log(`👋 Player left event: ${playerId}, socketId: ${socketId}`);
+            removePeer(socketId || playerId);
         };
 
         socket.on('webrtc:peer-joined', handlePeerJoined);
         socket.on('webrtc:offer', handleOffer);
         socket.on('webrtc:answer', handleAnswer);
         socket.on('webrtc:candidate', handleCandidate);
-        socket.on('user:left', handleUserLeft);
+        socket.on('player:left', handleUserLeft);
 
         return () => {
+            console.log('🔌 Cleaning up WebRTC socket listeners');
             socket.off('webrtc:peer-joined', handlePeerJoined);
             socket.off('webrtc:offer', handleOffer);
             socket.off('webrtc:answer', handleAnswer);
             socket.off('webrtc:candidate', handleCandidate);
-            socket.off('user:left', handleUserLeft);
+            socket.off('player:left', handleUserLeft);
         };
     }, [socket, isInitialized, userId, addPeer, removePeer]);
 

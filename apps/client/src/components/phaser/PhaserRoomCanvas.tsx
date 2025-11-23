@@ -5,6 +5,8 @@ import { RoomScene } from './game/scenes/RoomScene';
 
 import { RoomLayout } from '@metaverse/shared';
 
+import { Socket } from 'socket.io-client';
+
 interface PhaserRoomCanvasProps {
     roomId: string;
     user: {
@@ -14,15 +16,26 @@ interface PhaserRoomCanvasProps {
     };
     roomLayout?: RoomLayout;
     onAvatarClick?: (userId: string) => void;
+    socket: Socket | null;
 }
 
 /**
  * React component wrapper for Phaser game
  * Manages Phaser.Game lifecycle and passes room/user data to scene
  */
-const PhaserRoomCanvas: React.FC<PhaserRoomCanvasProps> = ({ roomId, user, roomLayout, onAvatarClick }) => {
+const PhaserRoomCanvas: React.FC<PhaserRoomCanvasProps> = ({ roomId, user, roomLayout, onAvatarClick, socket }) => {
     const gameRef = useRef<Phaser.Game | null>(null);
     const initializedRef = useRef(false);
+
+    // Update socket in scene when it changes
+    useEffect(() => {
+        if (socket && gameRef.current) {
+            const scene = gameRef.current.scene.getScene('RoomScene') as any;
+            if (scene && scene.setSocket) {
+                scene.setSocket(socket);
+            }
+        }
+    }, [socket]);
 
     useEffect(() => {
         // Only initialize once
@@ -47,13 +60,14 @@ const PhaserRoomCanvas: React.FC<PhaserRoomCanvasProps> = ({ roomId, user, roomL
             const scene = gameRef.current?.scene.getScene('RoomScene') as RoomScene;
             if (scene) {
                 console.log('🚀 Starting RoomScene with data:', { roomId, userId: user.id });
-                scene.scene.restart({
+                scene.scene.start('RoomScene', {
                     roomId,
                     userId: user.id,
                     name: user.name,
                     avatarColor: user.avatarColor,
                     roomLayout,
-                    onAvatarClick
+                    onAvatarClick,
+                    socket // Pass the shared socket
                 });
             }
         }, 200);
@@ -74,7 +88,8 @@ const PhaserRoomCanvas: React.FC<PhaserRoomCanvasProps> = ({ roomId, user, roomL
     return (
         <div
             id="phaser-container"
-            className="border-2 border-gray-700 rounded-lg overflow-hidden"
+            className="border-2 border-gray-700 rounded-lg overflow-hidden outline-none focus:border-blue-500"
+            tabIndex={0}
         />
     );
 };

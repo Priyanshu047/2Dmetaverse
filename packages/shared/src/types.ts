@@ -12,6 +12,8 @@ export interface Room {
     _id: string;
     name: string;
     slug: string;
+    roomId: string; // 6-digit code
+    ownerId: string; // User ID of the creator
     type: RoomType;
     description?: string;
     isPublic: boolean;

@@ -8,6 +8,8 @@ type RoomType = 'LOBBY' | 'NETWORKING_LOUNGE' | 'STAGE' | 'GAME_ROOM';
 export interface IRoom extends Document {
     name: string;
     slug: string;
+    roomId: string; // 6-digit code
+    ownerId: string; // User ID of the creator
     type: RoomType;
     description?: string;
     isPublic: boolean;
@@ -43,6 +45,8 @@ const RoomLayoutSchema = new Schema<RoomLayout>({
 const RoomSchema = new Schema<IRoom>({
     name: { type: String, required: true },
     slug: { type: String, required: true, unique: true },
+    roomId: { type: String, required: true, unique: true },
+    ownerId: { type: String, required: true },
     type: {
         type: String,
         enum: ['LOBBY', 'NETWORKING_LOUNGE', 'STAGE', 'GAME_ROOM'],

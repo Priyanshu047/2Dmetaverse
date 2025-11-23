@@ -2,11 +2,15 @@ import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Room } from '@metaverse/shared';
 import { getRooms } from '../api/rooms';
+import CreateRoomModal from '../components/room/CreateRoomModal';
+import JoinRoomModal from '../components/room/JoinRoomModal';
 
 const RoomsListPage: React.FC = () => {
     const [rooms, setRooms] = useState<Room[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
+    const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
+    const [isJoinModalOpen, setIsJoinModalOpen] = useState(false);
     const navigate = useNavigate();
 
     useEffect(() => {
@@ -40,6 +44,7 @@ const RoomsListPage: React.FC = () => {
             </div>
         );
     }
+
 
     return (
         <div className="min-h-screen bg-slate-900 text-white p-8">

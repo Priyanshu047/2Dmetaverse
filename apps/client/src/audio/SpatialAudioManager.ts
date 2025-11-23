@@ -146,6 +146,18 @@ export class SpatialAudioManager {
             });
 
             console.log(`🎵 Added spatial audio for peer: ${peerId}`);
+            console.log(`   - Audio Context State: ${this.audioContext.state}`);
+            console.log(`   - Source channels: ${sourceNode.channelCount}`);
+
+            // Resume context if suspended (browser autoplay policy)
+            if (this.audioContext.state === 'suspended') {
+                console.log('⚠️ AudioContext suspended, attempting to resume...');
+                this.audioContext.resume().then(() => {
+                    console.log('✅ AudioContext resumed successfully');
+                }).catch(err => {
+                    console.error('❌ Failed to resume AudioContext:', err);
+                });
+            }
         } catch (error) {
             console.error(`Failed to add spatial audio for peer ${peerId}:`, error);
         }

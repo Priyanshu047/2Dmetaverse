@@ -25,7 +25,7 @@ export class BootScene extends Phaser.Scene {
     }
 
     create() {
-        // Once loading is complete, transition to MainScene
-        this.scene.start('MainScene');
+        // Do nothing, wait for React component to start RoomScene with data
+        console.log('👢 BootScene ready, waiting for RoomScene start...');
     }
 }

@@ -12,3 +12,8 @@ export const getRoom = async (idOrSlug: string): Promise<Room> => {
     const response = await axios.get<Room>(`${API_URL}/rooms/${idOrSlug}`);
     return response.data;
 };
+
+export const createRoom = async (name: string, type: string = 'LOBBY', isPublic: boolean = true): Promise<Room> => {
+    const response = await axios.post<Room>(`${API_URL}/rooms`, { name, type, isPublic });
+    return response.data;
+};

@@ -11,6 +11,10 @@ interface ProfileModalProps {
     onAcceptClick?: () => void;
     onRejectClick?: () => void;
     isLoading?: boolean;
+    isAdmin?: boolean;
+    onKick?: () => void;
+    onMute?: () => void;
+    onBlock?: () => void;
 }
 
 const ProfileModal: React.FC<ProfileModalProps> = ({
@@ -22,6 +26,10 @@ const ProfileModal: React.FC<ProfileModalProps> = ({
     onAcceptClick,
     onRejectClick,
     isLoading = false,
+    isAdmin = false,
+    onKick,
+    onMute,
+    onBlock,
 }) => {
     if (!isOpen || !profile) return null;
 
@@ -203,6 +211,41 @@ const ProfileModal: React.FC<ProfileModalProps> = ({
                             </>
                         )}
                     </div>
+
+                    {/* Admin Controls */}
+                    {isAdmin && (
+                        <div className="mt-6 pt-6 border-t border-gray-700">
+                            <h3 className="text-sm font-semibold text-gray-400 uppercase mb-3">
+                                Admin Controls
+                            </h3>
+                            <div className="grid grid-cols-3 gap-3">
+                                {onMute && (
+                                    <button
+                                        onClick={onMute}
+                                        className="px-4 py-2 bg-yellow-600 hover:bg-yellow-700 text-white rounded-lg font-semibold transition text-sm"
+                                    >
+                                        🔇 Mute
+                                    </button>
+                                )}
+                                {onKick && (
+                                    <button
+                                        onClick={onKick}
+                                        className="px-4 py-2 bg-orange-600 hover:bg-orange-700 text-white rounded-lg font-semibold transition text-sm"
+                                    >
+                                        👢 Kick
+                                    </button>
+                                )}
+                                {onBlock && (
+                                    <button
+                                        onClick={onBlock}
+                                        className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg font-semibold transition text-sm"
+                                    >
+                                        🚫 Block
+                                    </button>
+                                )}
+                            </div>
+                        </div>
+                    )}
                 </div>
             </div>
         </div>
